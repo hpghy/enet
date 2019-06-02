@@ -1473,10 +1473,13 @@ enet_protocol_check_timeouts (ENetHost * host, ENetPeer * peer, ENetEvent * even
     return 0;
 }
 
+// HPTEST 把outgoing队列中的command移到sent队列中，并且写入host->buffer发送缓存中，将要发送
 static int
 enet_protocol_send_reliable_outgoing_commands (ENetHost * host, ENetPeer * peer)
 {
+    // HPTEST host->commands 将要发送出去的command
     ENetProtocol * command = & host -> commands [host -> commandCount];
+    // HPTEST 0->bufferCount在其他函数中存储了peer的头部信息
     ENetBuffer * buffer = & host -> buffers [host -> bufferCount];
     ENetOutgoingCommand * outgoingCommand;
     ENetListIterator currentCommand;
@@ -1486,11 +1489,13 @@ enet_protocol_send_reliable_outgoing_commands (ENetHost * host, ENetPeer * peer)
     int windowExceeded = 0, windowWrap = 0, canPing = 1;
 
     currentCommand = enet_list_begin (& peer -> outgoingReliableCommands);
-    
+   
+    // HPTEST 链表最后一个节点是哨兵
     while (currentCommand != enet_list_end (& peer -> outgoingReliableCommands))
     {
        outgoingCommand = (ENetOutgoingCommand *) currentCommand;
 
+       // HPTEST TODO..
        channel = outgoingCommand -> command.header.channelID < peer -> channelCount ? & peer -> channels [outgoingCommand -> command.header.channelID] : NULL;
        reliableWindow = outgoingCommand -> reliableSequenceNumber / ENET_PEER_RELIABLE_WINDOW_SIZE;
        if (channel != NULL)
@@ -1512,15 +1517,18 @@ enet_protocol_send_reliable_outgoing_commands (ENetHost * host, ENetPeer * peer)
  
        if (outgoingCommand -> packet != NULL)
        {
+           // HPTEST 发送窗口大小
           if (! windowExceeded)
           {
              enet_uint32 windowSize = (peer -> packetThrottle * peer -> windowSize) / ENET_PEER_PACKET_THROTTLE_SCALE;
-             
+            
+             // HPTEST reliableDataInTransit表示已发送但是尚未被确认的数据大小
              if (peer -> reliableDataInTransit + outgoingCommand -> fragmentLength > ENET_MAX (windowSize, peer -> mtu))
                windowExceeded = 1;
           }
           if (windowExceeded)
           {
+              // 超出窗口大小还要继续因为后面可能还有控制数据，不计入窗口大小里面
              currentCommand = enet_list_next (currentCommand);
 
              continue;
@@ -1536,11 +1544,13 @@ enet_protocol_send_reliable_outgoing_commands (ENetHost * host, ENetPeer * peer)
            (outgoingCommand -> packet != NULL && 
              (enet_uint16) (peer -> mtu - host -> packetSize) < (enet_uint16) (commandSize + outgoingCommand -> fragmentLength)))
        {
+           // HPTEST 如果会超出MTU大小，需要标记还需要下一轮遍历
           host -> continueSending = 1;
           
           break;
        }
 
+       // HPTEST 直接移到下一个命令！这代码风格太差了.....
        currentCommand = enet_list_next (currentCommand);
 
        if (channel != NULL && outgoingCommand -> sendAttempts < 1)
@@ -1565,6 +1575,7 @@ enet_protocol_send_reliable_outgoing_commands (ENetHost * host, ENetPeer * peer)
 
        outgoingCommand -> sentTime = host -> serviceTime;
 
+       // HPTEST 先填充控制信息
        buffer -> data = command;
        buffer -> dataLength = commandSize;
 
@@ -1576,7 +1587,8 @@ enet_protocol_send_reliable_outgoing_commands (ENetHost * host, ENetPeer * peer)
        if (outgoingCommand -> packet != NULL)
        {
           ++ buffer;
-          
+         
+          // HPTEST 填充实际要发送的数据
           buffer -> data = outgoingCommand -> packet -> data + outgoingCommand -> fragmentOffset;
           buffer -> dataLength = outgoingCommand -> fragmentLength;
 
@@ -1626,24 +1638,29 @@ enet_protocol_send_outgoing_commands (ENetHost * host, ENetEvent * event, int ch
         if (! enet_list_empty (& currentPeer -> acknowledgements))
           enet_protocol_send_acknowledgements (host, currentPeer);
 
+        // HPTEST: 检测出超时断线情况立即告诉逻辑层, 下次还是从头遍历，TODO...后面的peer会不会饥饿???
         if (checkForTimeouts != 0 &&
             ! enet_list_empty (& currentPeer -> sentReliableCommands) &&
             ENET_TIME_GREATER_EQUAL (host -> serviceTime, currentPeer -> nextTimeout) &&
             enet_protocol_check_timeouts (host, currentPeer, event) == 1)
         {
+            // HPTEST 检查出一个消息 return 1表示立即返回告诉上层业务层
             if (event != NULL && event -> type != ENET_EVENT_TYPE_NONE)
               return 1;
             else
               continue;
         }
 
+        // HPTEST: 如果把outgoing_command队列全部写入发送缓存，且到了ping间隔，且当前mtu还能携带一个ping协议
         if ((enet_list_empty (& currentPeer -> outgoingReliableCommands) ||
+                    // HPTEST send_reliable把数据写入host->buffer[1...n]
               enet_protocol_send_reliable_outgoing_commands (host, currentPeer)) &&
             enet_list_empty (& currentPeer -> sentReliableCommands) &&
             ENET_TIME_DIFFERENCE (host -> serviceTime, currentPeer -> lastReceiveTime) >= currentPeer -> pingInterval &&
             currentPeer -> mtu - host -> packetSize >= sizeof (ENetProtocolPing))
         { 
             enet_peer_ping (currentPeer);
+            // HPTEST: outgoing_command里面只有一个ping command，直接写入发送缓存
             enet_protocol_send_reliable_outgoing_commands (host, currentPeer);
         }
                       
@@ -1683,6 +1700,7 @@ enet_protocol_send_outgoing_commands (ENetHost * host, ENetEvent * event, int ch
            currentPeer -> packetsLost = 0;
         }
 
+        // HPTEST: 设置buffers[0]的内容 ENetProtocolHeader: peerId + sentTime
         host -> buffers -> data = headerData;
         if (host -> headerFlags & ENET_PROTOCOL_HEADER_FLAG_SENT_TIME)
         {
@@ -1732,6 +1750,7 @@ enet_protocol_send_outgoing_commands (ENetHost * host, ENetEvent * event, int ch
 
         currentPeer -> lastSendTime = host -> serviceTime;
 
+        // HPTEST: 这里没有处理部分完成的情况因为UDP是atomic要么失败要么全部成功
         sentLength = enet_socket_send (host -> socket, & currentPeer -> address, host -> buffers, host -> bufferCount);
 
         enet_protocol_remove_sent_unreliable_commands (currentPeer);
@@ -1863,6 +1882,7 @@ enet_host_service (ENetHost * host, ENetEvent * event, enet_uint32 timeout)
           break;
        }
 
+       // HPTEST TODO...一直不明白为什么要调用两次
        switch (enet_protocol_send_outgoing_commands (host, event, 1))
        {
        case 1:

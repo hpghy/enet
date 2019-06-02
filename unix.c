@@ -14,6 +14,7 @@
 #include <string.h>
 #include <errno.h>
 #include <time.h>
+#include <stdio.h>
 
 #define ENET_BUILDING_LIB 1
 #include "enet/enet.h"
@@ -454,7 +455,16 @@ enet_socket_send (ENetSocket socket,
     msgHdr.msg_iov = (struct iovec *) buffers;
     msgHdr.msg_iovlen = bufferCount;
 
+    // HPTEST 创建host时就设置为nonblock
     sentLength = sendmsg (socket, & msgHdr, MSG_NOSIGNAL);
+
+#ifdef HPTEST
+    if (sentLength > 0)
+    {
+        printf("HPTEST sendmsg sentLength: %u, bufferCount: %lu\n", sentLength, bufferCount);
+        fflush(stdout);
+    }
+#endif
     
     if (sentLength == -1)
     {

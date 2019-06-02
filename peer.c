@@ -3,6 +3,7 @@
  @brief ENet peer management functions
 */
 #include <string.h>
+#include <stdio.h>
 #define ENET_BUILDING_LIB 1
 #include "enet/enet.h"
 
@@ -151,6 +152,7 @@ enet_peer_send (ENetPeer * peer, enet_uint8 channelID, ENetPacket * packet)
          fragment = (ENetOutgoingCommand *) enet_malloc (sizeof (ENetOutgoingCommand));
          if (fragment == NULL)
          {
+            // HPTEST: fragments临时队列的原因是避免部分发送
             while (! enet_list_empty (& fragments))
             {
                fragment = (ENetOutgoingCommand *) enet_list_remove (enet_list_begin (& fragments));
@@ -185,6 +187,12 @@ enet_peer_send (ENetPeer * peer, enet_uint8 channelID, ENetPacket * packet)
          enet_peer_setup_outgoing_command (peer, fragment);
       }
 
+      // HPTEST 完成分片
+#ifdef HPTEST
+      printf("send packet of %u fragments\n", fragmentNumber);
+      fflush(stdout);
+#endif
+
       return 0;
    }
 
@@ -209,6 +217,11 @@ enet_peer_send (ENetPeer * peer, enet_uint8 channelID, ENetPacket * packet)
 
    if (enet_peer_queue_outgoing_command (peer, & command, packet, 0, packet -> dataLength) == NULL)
      return -1;
+
+#ifdef  HPTEST
+   printf("send packet into outgoging queue, size: %lu!\n", enet_list_size(&peer->outgoingReliableCommands));
+   fflush(stdout);
+#endif
 
    return 0;
 }
