@@ -851,6 +851,7 @@ enet_protocol_handle_acknowledge (ENetHost * host, ENetEvent * event, ENetPeer *
     if (ENET_TIME_LESS (host -> serviceTime, receivedSentTime))
       return 0;
 
+    // HPTEST 收到ack后清理timeout，重新遍历发送窗口计算最早的sentTime
     peer -> lastReceiveTime = host -> serviceTime;
     peer -> earliestTimeout = 0;
 
@@ -1438,15 +1439,24 @@ enet_protocol_check_timeouts (ENetHost * host, ENetPeer * peer, ENetEvent * even
        if (ENET_TIME_DIFFERENCE (host -> serviceTime, outgoingCommand -> sentTime) < outgoingCommand -> roundTripTimeout)
          continue;
 
+       // HPTEST earliestTimeout统计发送窗口(等待ack)中最早发送的时间(第一次发送时间), 注意看earliestTimeout清理逻辑
        if (peer -> earliestTimeout == 0 ||
            ENET_TIME_LESS (outgoingCommand -> sentTime, peer -> earliestTimeout))
          peer -> earliestTimeout = outgoingCommand -> sentTime;
 
+       // HPTEST 超时的两个策略，总超时>timeoutMaximum，或是连续5次（指数退避）后总超时>timeoutMinimum
        if (peer -> earliestTimeout != 0 &&
              (ENET_TIME_DIFFERENCE (host -> serviceTime, peer -> earliestTimeout) >= peer -> timeoutMaximum ||
                (outgoingCommand -> roundTripTimeout >= outgoingCommand -> roundTripTimeoutLimit &&
                  ENET_TIME_DIFFERENCE (host -> serviceTime, peer -> earliestTimeout) >= peer -> timeoutMinimum)))
        {
+
+#ifdef HPTEST
+            printf("HPTEST earliestTimeout: %u, serviceTime: %u, timeoutMaximum: %u, cmd-roundTripTimeout: %u, cmd-roundTripTimeoutLimit\n",
+                peer -> earliestTimeout, host -> serviceTime, peer -> timeoutMaximum, outgoingCommand -> roundTripTimeout, outgoingCommand -> roundTripTimeoutLimit);
+            fflush(stdout);
+#endif
+
           enet_protocol_notify_disconnect (host, peer, event);
 
           return 1;
@@ -1454,11 +1464,13 @@ enet_protocol_check_timeouts (ENetHost * host, ENetPeer * peer, ENetEvent * even
 
        if (outgoingCommand -> packet != NULL)
          peer -> reliableDataInTransit -= outgoingCommand -> fragmentLength;
-          
+         
+       // HPTEST delta_time >= RTO就是超时
        ++ peer -> packetsLost;
 
        outgoingCommand -> roundTripTimeout *= 2;
 
+       // 重新塞入排队等待发送
        enet_list_insert (insertPosition, enet_list_remove (& outgoingCommand -> outgoingCommandList));
 
        if (currentCommand == enet_list_begin (& peer -> sentReliableCommands) &&
@@ -1563,6 +1575,7 @@ enet_protocol_send_reliable_outgoing_commands (ENetHost * host, ENetPeer * peer)
  
        if (outgoingCommand -> roundTripTimeout == 0)
        {
+           // HPTEST 初始化Command的RTO和RTOLimit
           outgoingCommand -> roundTripTimeout = peer -> roundTripTime + 4 * peer -> roundTripTimeVariance;
           outgoingCommand -> roundTripTimeoutLimit = peer -> timeoutLimit * outgoingCommand -> roundTripTimeout;
        }
@@ -1573,6 +1586,7 @@ enet_protocol_send_reliable_outgoing_commands (ENetHost * host, ENetPeer * peer)
        enet_list_insert (enet_list_end (& peer -> sentReliableCommands),
                          enet_list_remove (& outgoingCommand -> outgoingCommandList));
 
+       // 更新最新的发送时间
        outgoingCommand -> sentTime = host -> serviceTime;
 
        // HPTEST 先填充控制信息
