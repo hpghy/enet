@@ -48,6 +48,7 @@ enet_protocol_dispatch_state (ENetHost * host, ENetPeer * peer, ENetPeerState st
 {
     enet_protocol_change_state (host, peer, state);
 
+    // HPTEST 表示dispatchQueue是否有排队的state变化
     if (! peer -> needsDispatch)
     {
        enet_list_insert (enet_list_end (& host -> dispatchQueue), & peer -> dispatchList);
@@ -76,10 +77,12 @@ enet_protocol_dispatch_incoming_commands (ENetHost * host, ENetEvent * event)
            event -> data = peer -> eventData;
 
            return 1;
-           
+          
+           // HK4E TODO...所有ZOMBIE的来源都查一下
        case ENET_PEER_STATE_ZOMBIE:
            host -> recalculateBandwidthLimits = 1;
 
+           // HK4E ZOMBIE --> DISCONNECT
            event -> type = ENET_EVENT_TYPE_DISCONNECT;
            event -> peer = peer;
            event -> data = peer -> eventData;
@@ -144,6 +147,7 @@ enet_protocol_notify_disconnect (ENetHost * host, ENetPeer * peer, ENetEvent * e
     else
     if (event != NULL)
     {
+        // HK4E 直接传递给上层，进入DISCONNECT状态
         event -> type = ENET_EVENT_TYPE_DISCONNECT;
         event -> peer = peer;
         event -> data = 0;
@@ -152,6 +156,7 @@ enet_protocol_notify_disconnect (ENetHost * host, ENetPeer * peer, ENetEvent * e
     }
     else 
     {
+        // HK4E 进入ZOMIE状态, 等待返回给上层逻辑 --> DISCONNECT
         peer -> eventData = 0;
 
         enet_protocol_dispatch_state (host, peer, ENET_PEER_STATE_ZOMBIE);
@@ -905,6 +910,7 @@ enet_protocol_handle_acknowledge (ENetHost * host, ENetEvent * event, ENetPeer *
        if (commandNumber != ENET_PROTOCOL_COMMAND_DISCONNECT)
          return -1;
 
+       // HK4E TODO...这里要加日志, 发出Disconnect请求后收到了Ack
        enet_protocol_notify_disconnect (host, peer, event);
        break;
 
@@ -1452,8 +1458,9 @@ enet_protocol_check_timeouts (ENetHost * host, ENetPeer * peer, ENetEvent * even
        {
 
 #ifdef HPTEST
-            printf("HPTEST earliestTimeout: %u, serviceTime: %u, timeoutMaximum: %u, cmd-roundTripTimeout: %u, cmd-roundTripTimeoutLimit\n",
-                peer -> earliestTimeout, host -> serviceTime, peer -> timeoutMaximum, outgoingCommand -> roundTripTimeout, outgoingCommand -> roundTripTimeoutLimit);
+            printf("HPTEST earliestTimeout: %u, serviceTime: %u, timeoutMaximum: %u, cmd-roundTripTimeout: %u, cmd-roundTripTimeoutLimit: %u, timeoutMinimum: %u\n",
+                peer -> earliestTimeout, host -> serviceTime, peer -> timeoutMaximum, 
+                outgoingCommand -> roundTripTimeout, outgoingCommand -> roundTripTimeoutLimit, peer -> timeoutMinimum);
             fflush(stdout);
 #endif
 
@@ -1473,6 +1480,7 @@ enet_protocol_check_timeouts (ENetHost * host, ENetPeer * peer, ENetEvent * even
        // 重新塞入排队等待发送
        enet_list_insert (insertPosition, enet_list_remove (& outgoingCommand -> outgoingCommandList));
 
+       // HPTEST TODO...这个判断是什么含义
        if (currentCommand == enet_list_begin (& peer -> sentReliableCommands) &&
            ! enet_list_empty (& peer -> sentReliableCommands))
        {
@@ -1655,6 +1663,7 @@ enet_protocol_send_outgoing_commands (ENetHost * host, ENetEvent * event, int ch
         // HPTEST: 检测出超时断线情况立即告诉逻辑层, 下次还是从头遍历，TODO...后面的peer会不会饥饿???
         if (checkForTimeouts != 0 &&
             ! enet_list_empty (& currentPeer -> sentReliableCommands) &&
+            // HPTEST 定时检查timeout
             ENET_TIME_GREATER_EQUAL (host -> serviceTime, currentPeer -> nextTimeout) &&
             enet_protocol_check_timeouts (host, currentPeer, event) == 1)
         {
@@ -1709,6 +1718,7 @@ enet_protocol_send_outgoing_commands (ENetHost * host, ENetEvent * event, int ch
               currentPeer -> packetLossVariance += (currentPeer -> packetLoss - packetLoss) / 4;
            }
 
+           // HPTEST enet是统计10s内的send和lost记录
            currentPeer -> packetLossEpoch = host -> serviceTime;
            currentPeer -> packetsSent = 0;
            currentPeer -> packetsLost = 0;
