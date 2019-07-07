@@ -277,7 +277,7 @@ typedef struct _ENetPeer
     enet_uint32   outgoingDataTotal;
     enet_uint32   lastSendTime;
     enet_uint32   lastReceiveTime;
-    enet_uint32   nextTimeout;
+    enet_uint32   nextTimeout;          // HPTEST 下次检测timeout的时间戳
     enet_uint32   earliestTimeout;
     enet_uint32   packetLossEpoch;
     enet_uint32   packetsSent;
