@@ -109,6 +109,7 @@ enet_peer_send (ENetPeer * peer, enet_uint8 channelID, ENetPacket * packet)
        packet -> dataLength > peer -> host -> maximumPacketSize)
      return -1;
 
+   // HPTEST mtu: 576会不会太小了
    fragmentLength = peer -> mtu - sizeof (ENetProtocolHeader) - sizeof (ENetProtocolSendFragment);
    if (peer -> host -> checksum != NULL)
      fragmentLength -= sizeof(enet_uint32);
@@ -168,6 +169,7 @@ enet_peer_send (ENetPeer * peer, enet_uint8 channelID, ENetPacket * packet)
          fragment -> packet = packet;
          fragment -> command.header.command = commandNumber;
          fragment -> command.header.channelID = channelID;
+         // HPTEST 分片协议里面存储的是同一个序列号
          fragment -> command.sendFragment.startSequenceNumber = startSequenceNumber;
          fragment -> command.sendFragment.dataLength = ENET_HOST_TO_NET_16 (fragmentLength);
          fragment -> command.sendFragment.fragmentCount = ENET_HOST_TO_NET_32 (fragmentCount);
@@ -183,13 +185,13 @@ enet_peer_send (ENetPeer * peer, enet_uint8 channelID, ENetPacket * packet)
       while (! enet_list_empty (& fragments))
       {
          fragment = (ENetOutgoingCommand *) enet_list_remove (enet_list_begin (& fragments));
- 
+
          enet_peer_setup_outgoing_command (peer, fragment);
       }
 
       // HPTEST 完成分片
 #ifdef HPTEST
-      printf("send packet of %u fragments\n", fragmentNumber);
+      printf("send packet of %u fragments, startSequenceNumber: %d\n", fragmentNumber, ENET_NET_TO_HOST_16(startSequenceNumber));
       fflush(stdout);
 #endif
 
@@ -219,7 +221,7 @@ enet_peer_send (ENetPeer * peer, enet_uint8 channelID, ENetPacket * packet)
      return -1;
 
 #ifdef  HPTEST
-   printf("send packet into outgoging queue, size: %lu!\n", enet_list_size(&peer->outgoingReliableCommands));
+   printf("after send packet into outgoging queue, size: %lu!\n", enet_list_size(&peer->outgoingReliableCommands));
    fflush(stdout);
 #endif
 
@@ -643,9 +645,11 @@ enet_peer_setup_outgoing_command (ENetPeer * peer, ENetOutgoingCommand * outgoin
     else
     if (outgoingCommand -> command.header.command & ENET_PROTOCOL_COMMAND_FLAG_ACKNOWLEDGE)
     {
+       // HPTEST 增加序列号，改写设置Command的序列号
        ++ channel -> outgoingReliableSequenceNumber;
        channel -> outgoingUnreliableSequenceNumber = 0;
 
+       // HPTEST 设置序列号区别于分片里面的序列号
        outgoingCommand -> reliableSequenceNumber = channel -> outgoingReliableSequenceNumber;
        outgoingCommand -> unreliableSequenceNumber = 0;
     }
@@ -686,6 +690,12 @@ enet_peer_setup_outgoing_command (ENetPeer * peer, ENetOutgoingCommand * outgoin
         break;
     }
 
+#ifdef HPTEST
+    printf("setup_outgoing_command reliableSequenceNumber: %d\n", outgoingCommand -> reliableSequenceNumber);
+    fflush(stdout);
+#endif
+
+    // 插入到outgoingReliableCommands待发送队列中
     if (outgoingCommand -> command.header.command & ENET_PROTOCOL_COMMAND_FLAG_ACKNOWLEDGE)
       enet_list_insert (enet_list_end (& peer -> outgoingReliableCommands), outgoingCommand);
     else
@@ -699,6 +709,7 @@ enet_peer_queue_outgoing_command (ENetPeer * peer, const ENetProtocol * command,
     if (outgoingCommand == NULL)
       return NULL;
 
+    // HPTEST 这是一个完整的packet
     outgoingCommand -> command = * command;
     outgoingCommand -> fragmentOffset = offset;
     outgoingCommand -> fragmentLength = length;

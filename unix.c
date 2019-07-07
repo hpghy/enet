@@ -498,6 +498,7 @@ enet_socket_receive (ENetSocket socket,
     msgHdr.msg_iov = (struct iovec *) buffers;
     msgHdr.msg_iovlen = bufferCount;
 
+    // HPTEST: 会保证是一个完整的udp报文
     recvLength = recvmsg (socket, & msgHdr, MSG_NOSIGNAL);
 
     if (recvLength == -1)

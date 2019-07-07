@@ -200,6 +200,7 @@ enet_host_connect (ENetHost * host, const ENetAddress * address, size_t channelC
     currentPeer -> channelCount = channelCount;
     currentPeer -> state = ENET_PEER_STATE_CONNECTING;
     currentPeer -> address = * address;
+    // HPTEST 每次connect connectID都需要自增
     currentPeer -> connectID = ++ host -> randomSeed;
 
     if (host -> outgoingBandwidth == 0)

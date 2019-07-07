@@ -302,6 +302,7 @@ enet_protocol_handle_connect (ENetHost * host, ENetProtocolHeader * header, ENet
     {
         if (currentPeer -> state == ENET_PEER_STATE_DISCONNECTED)
         {
+            // HPTEST 寻找一个已经完成断开的peer
             if (peer == NULL)
               peer = currentPeer;
         }
@@ -309,6 +310,7 @@ enet_protocol_handle_connect (ENetHost * host, ENetProtocolHeader * header, ENet
         if (currentPeer -> state != ENET_PEER_STATE_CONNECTING &&
             currentPeer -> address.host == host -> receivedAddress.host)
         {
+            // HPTEST 避免重复的连接请求, connectID客户端每次发送connect都会递增connectID
             if (currentPeer -> address.port == host -> receivedAddress.port &&
                 currentPeer -> connectID == command -> connect.connectID)
               return NULL;
@@ -329,7 +331,7 @@ enet_protocol_handle_connect (ENetHost * host, ENetProtocolHeader * header, ENet
     peer -> state = ENET_PEER_STATE_ACKNOWLEDGING_CONNECT;
     peer -> connectID = command -> connect.connectID;
     peer -> address = host -> receivedAddress;
-    peer -> outgoingPeerID = ENET_NET_TO_HOST_16 (command -> connect.outgoingPeerID);
+    peer -> outgoingPeerID = ENET_NET_TO_HOST_16 (command -> connect.outgoingPeerID);       // 对方的peer编号
     peer -> incomingBandwidth = ENET_NET_TO_HOST_32 (command -> connect.incomingBandwidth);
     peer -> outgoingBandwidth = ENET_NET_TO_HOST_32 (command -> connect.outgoingBandwidth);
     peer -> packetThrottleInterval = ENET_NET_TO_HOST_32 (command -> connect.packetThrottleInterval);
@@ -337,6 +339,7 @@ enet_protocol_handle_connect (ENetHost * host, ENetProtocolHeader * header, ENet
     peer -> packetThrottleDeceleration = ENET_NET_TO_HOST_32 (command -> connect.packetThrottleDeceleration);
     peer -> eventData = ENET_NET_TO_HOST_32 (command -> connect.data);
 
+    // HPTEST TODO...这几个字段的含义需要仔细看看
     incomingSessionID = command -> connect.incomingSessionID == 0xFF ? peer -> outgoingSessionID : command -> connect.incomingSessionID;
     incomingSessionID = (incomingSessionID + 1) & (ENET_PROTOCOL_HEADER_SESSION_MASK >> ENET_PROTOCOL_HEADER_SESSION_SHIFT);
     if (incomingSessionID == peer -> outgoingSessionID)
@@ -410,8 +413,15 @@ enet_protocol_handle_connect (ENetHost * host, ENetProtocolHeader * header, ENet
     if (windowSize > ENET_PROTOCOL_MAXIMUM_WINDOW_SIZE)
       windowSize = ENET_PROTOCOL_MAXIMUM_WINDOW_SIZE;
 
+#ifdef HPTEST
+    printf("peer port: %u, peer->incomingPeerID: %u peer->outgoingPeerID: %u peer->connectID: %u peer->outgoingSessionID: %u peer->incomingSessionID: %u peer->windowSize: %u\n", 
+            peer->address.port, peer->incomingPeerID, peer->outgoingPeerID, peer->connectID, peer->outgoingSessionID, peer->incomingSessionID, peer->windowSize);
+    fflush(stdout);
+#endif
+
     verifyCommand.header.command = ENET_PROTOCOL_COMMAND_VERIFY_CONNECT | ENET_PROTOCOL_COMMAND_FLAG_ACKNOWLEDGE;
     verifyCommand.header.channelID = 0xFF;
+    // HPTEST: 注意outgoingPeerID填充的是peer本身的编号
     verifyCommand.verifyConnect.outgoingPeerID = ENET_HOST_TO_NET_16 (peer -> incomingPeerID);
     verifyCommand.verifyConnect.incomingSessionID = incomingSessionID;
     verifyCommand.verifyConnect.outgoingSessionID = outgoingSessionID;
@@ -983,6 +993,7 @@ enet_protocol_handle_verify_connect (ENetHost * host, ENetEvent * event, ENetPee
     return 0;
 }
 
+// HPTEST data解析成各个command，并处理
 static int
 enet_protocol_handle_incoming_commands (ENetHost * host, ENetEvent * event)
 {
@@ -999,6 +1010,7 @@ enet_protocol_handle_incoming_commands (ENetHost * host, ENetEvent * event)
 
     header = (ENetProtocolHeader *) host -> receivedData;
 
+    // HPTEST 0-11位是peerID，14-15是flags标志，12-13是sessionId
     peerID = ENET_NET_TO_HOST_16 (header -> peerID);
     sessionID = (peerID & ENET_PROTOCOL_HEADER_SESSION_MASK) >> ENET_PROTOCOL_HEADER_SESSION_SHIFT;
     flags = peerID & ENET_PROTOCOL_HEADER_FLAG_MASK;
@@ -1008,6 +1020,7 @@ enet_protocol_handle_incoming_commands (ENetHost * host, ENetEvent * event)
     if (host -> checksum != NULL)
       headerSize += sizeof (enet_uint32);
 
+    // HPTEST Sync请求peerID就是这个
     if (peerID == ENET_PROTOCOL_MAXIMUM_PEER_ID)
       peer = NULL;
     else
@@ -1017,6 +1030,7 @@ enet_protocol_handle_incoming_commands (ENetHost * host, ENetEvent * event)
     {
        peer = & host -> peers [peerID];
 
+       // HPTEST 校验peer和对应的发送方地址, 以及sessionID
        if (peer -> state == ENET_PEER_STATE_DISCONNECTED ||
            peer -> state == ENET_PEER_STATE_ZOMBIE ||
            ((host -> receivedAddress.host != peer -> address.host ||
@@ -1063,6 +1077,13 @@ enet_protocol_handle_incoming_commands (ENetHost * host, ENetEvent * event)
        
     if (peer != NULL)
     {
+        // HPTEST 上面已经校验了host/port
+#ifdef HPTEST
+        printf("rece address:%d, port:%d, peer address: %d, port: %d\n", 
+                host->receivedAddress.host, host->receivedAddress.port,
+                peer->address.host, peer->address.port);
+        fflush(stdout);
+#endif
        peer -> address.host = host -> receivedAddress.host;
        peer -> address.port = host -> receivedAddress.port;
        peer -> incomingDataTotal += host -> receivedDataLength;
@@ -1090,6 +1111,7 @@ enet_protocol_handle_incoming_commands (ENetHost * host, ENetEvent * event)
 
        currentData += commandSize;
 
+       // HPTEST: break,函数返回0, 父函数返回-1, _service里面报出error
        if (peer == NULL && commandNumber != ENET_PROTOCOL_COMMAND_CONNECT)
          break;
          
@@ -1206,11 +1228,13 @@ enet_protocol_receive_incoming_commands (ENetHost * host, ENetEvent * event)
 {
     int packets;
 
+    // HPTEST 为什么需要重复256次
     for (packets = 0; packets < 256; ++ packets)
     {
        int receivedLength;
        ENetBuffer buffer;
 
+       // HPTEST 每次都读到packetData[0], 间接标明必须是完整的udp报文
        buffer.data = host -> packetData [0];
        buffer.dataLength = sizeof (host -> packetData [0]);
 
@@ -1489,13 +1513,18 @@ enet_protocol_send_reliable_outgoing_commands (ENetHost * host, ENetPeer * peer)
     int windowExceeded = 0, windowWrap = 0, canPing = 1;
 
     currentCommand = enet_list_begin (& peer -> outgoingReliableCommands);
+
+#ifdef HPTEST
+    printf("begin send buffer:\n");
+    fflush(stdout);
+#endif
    
     // HPTEST 链表最后一个节点是哨兵
     while (currentCommand != enet_list_end (& peer -> outgoingReliableCommands))
     {
        outgoingCommand = (ENetOutgoingCommand *) currentCommand;
 
-       // HPTEST TODO..
+       // HPTEST TODO..看了一下日志为什么基本每次只发送一个Command
        channel = outgoingCommand -> command.header.channelID < peer -> channelCount ? & peer -> channels [outgoingCommand -> command.header.channelID] : NULL;
        reliableWindow = outgoingCommand -> reliableSequenceNumber / ENET_PEER_RELIABLE_WINDOW_SIZE;
        if (channel != NULL)
@@ -1579,6 +1608,11 @@ enet_protocol_send_reliable_outgoing_commands (ENetHost * host, ENetPeer * peer)
        buffer -> data = command;
        buffer -> dataLength = commandSize;
 
+#ifdef HPTEST
+       printf("write Command Sequence: %u into send buffer\n", outgoingCommand->reliableSequenceNumber);
+       fflush(stdout);
+#endif
+
        host -> packetSize += buffer -> dataLength;
        host -> headerFlags |= ENET_PROTOCOL_HEADER_FLAG_SENT_TIME;
 
@@ -1589,6 +1623,10 @@ enet_protocol_send_reliable_outgoing_commands (ENetHost * host, ENetPeer * peer)
           ++ buffer;
          
           // HPTEST 填充实际要发送的数据
+#ifdef HPTEST
+       printf("write Command data: %u into send buffer\n");
+       fflush(stdout);
+#endif
           buffer -> data = outgoingCommand -> packet -> data + outgoingCommand -> fragmentOffset;
           buffer -> dataLength = outgoingCommand -> fragmentLength;
 
