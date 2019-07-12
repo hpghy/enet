@@ -185,8 +185,8 @@ typedef struct _ENetIncomingCommand
     ENetProtocol     command;
     enet_uint32      fragmentCount;
     enet_uint32      fragmentsRemaining;
-    enet_uint32*     fragments;
-    ENetPacket*      packet;
+    enet_uint32*     fragments;         // HPTEST bit标记fragment是否接到
+    ENetPacket*      packet;            // HPTEST 协议里已经接到的分片数据
 } ENetIncomingCommand;
 
 typedef enum _ENetPeerState
@@ -244,9 +244,9 @@ typedef struct _ENetChannel
     enet_uint16  outgoingUnreliableSequenceNumber;
     enet_uint16  usedReliableWindows;
     enet_uint16  reliableWindows [ENET_PEER_RELIABLE_WINDOWS];
-    enet_uint16  incomingReliableSequenceNumber;
+    enet_uint16  incomingReliableSequenceNumber;        // HPTEST 已经处理的Command序列号(必须是完整的协议而不是分片)
     enet_uint16  incomingUnreliableSequenceNumber;
-    ENetList     incomingReliableCommands;
+    ENetList     incomingReliableCommands;              // 接收缓存
     ENetList     incomingUnreliableCommands;
 } ENetChannel;
 
@@ -257,7 +257,7 @@ typedef struct _ENetChannel
  */
 typedef struct _ENetPeer
 {
-    ENetListNode  dispatchList;
+    ENetListNode  dispatchList;             // HPTEST 在host排队的节点
     struct _ENetHost* host;
     enet_uint16   outgoingPeerID;
     enet_uint16   incomingPeerID;
@@ -310,7 +310,7 @@ typedef struct _ENetPeer
     ENetList      sentUnreliableCommands;
     ENetList      outgoingReliableCommands;      // HPTEST 排队将要发送出去的command
     ENetList      outgoingUnreliableCommands;
-    ENetList      dispatchedCommands;
+    ENetList      dispatchedCommands;            // HPTEST 读取的完整连续的协议
     int           needsDispatch;
     enet_uint16   incomingUnsequencedGroup;
     enet_uint16   outgoingUnsequencedGroup;
@@ -369,7 +369,7 @@ typedef struct _ENetHost
     size_t               peerCount;                   /**< number of peers allocated for this host */
     size_t               channelLimit;                /**< maximum number of channels allowed for connected peers */
     enet_uint32          serviceTime;
-    ENetList             dispatchQueue;
+    ENetList             dispatchQueue;             // HPTEST 里面存储需要处理的peer(比如状态变化,有新协议过来)
     int                  continueSending;
     size_t               packetSize;
     enet_uint16          headerFlags;

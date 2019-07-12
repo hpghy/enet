@@ -805,6 +805,7 @@ enet_peer_dispatch_incoming_unreliable_commands (ENetPeer * peer, ENetChannel * 
     enet_peer_remove_incoming_commands (& channel -> incomingUnreliableCommands, enet_list_begin (& channel -> incomingUnreliableCommands), droppedCommand);
 }
 
+// HPTEST 尝试按序从接受缓存中读取完整的协议(保序), 放入队列中，等待host处理(通知上层逻辑)
 void
 enet_peer_dispatch_incoming_reliable_commands (ENetPeer * peer, ENetChannel * channel)
 {
@@ -815,26 +816,32 @@ enet_peer_dispatch_incoming_reliable_commands (ENetPeer * peer, ENetChannel * ch
          currentCommand = enet_list_next (currentCommand))
     {
        ENetIncomingCommand * incomingCommand = (ENetIncomingCommand *) currentCommand;
-         
+    
+       // HPTEST 如果第一个协议不完整，还需要等待
        if (incomingCommand -> fragmentsRemaining > 0 ||
+       // HPTEST 需要保序
            incomingCommand -> reliableSequenceNumber != (enet_uint16) (channel -> incomingReliableSequenceNumber + 1))
          break;
 
+       // HPTEST 更新最新的Command序列号
        channel -> incomingReliableSequenceNumber = incomingCommand -> reliableSequenceNumber;
 
        if (incomingCommand -> fragmentCount > 0)
          channel -> incomingReliableSequenceNumber += incomingCommand -> fragmentCount - 1;
     } 
 
+    // HPTEST 没有完整的协议
     if (currentCommand == enet_list_begin (& channel -> incomingReliableCommands))
       return;
 
     channel -> incomingUnreliableSequenceNumber = 0;
 
+    // HPTEST 完整连续的协议移到peer->dispatchedCommands队列中
     enet_list_move (enet_list_end (& peer -> dispatchedCommands), enet_list_begin (& channel -> incomingReliableCommands), enet_list_previous (currentCommand));
 
     if (! peer -> needsDispatch)
     {
+        // HPTEST 把peer放入host排队列表中
        enet_list_insert (enet_list_end (& peer -> host -> dispatchQueue), & peer -> dispatchList);
 
        peer -> needsDispatch = 1;
@@ -844,6 +851,7 @@ enet_peer_dispatch_incoming_reliable_commands (ENetPeer * peer, ENetChannel * ch
        enet_peer_dispatch_incoming_unreliable_commands (peer, channel);
 }
 
+// HPTEST 遇到协议的第一个分片，往接受队列某个位置插入一个IncomingCommand
 ENetIncomingCommand *
 enet_peer_queue_incoming_command (ENetPeer * peer, const ENetProtocol * command, const void * data, size_t dataLength, enet_uint32 flags, enet_uint32 fragmentCount)
 {
@@ -861,6 +869,9 @@ enet_peer_queue_incoming_command (ENetPeer * peer, const ENetProtocol * command,
 
     if ((command -> header.command & ENET_PROTOCOL_COMMAND_MASK) != ENET_PROTOCOL_COMMAND_SEND_UNSEQUENCED)
     {
+        // HPTEST TODO...窗口大小?
+        
+        // HPTEST 协议第一个分片的序列号
         reliableSequenceNumber = command -> header.reliableSequenceNumber;
         reliableWindow = reliableSequenceNumber / ENET_PEER_RELIABLE_WINDOW_SIZE;
         currentWindow = channel -> incomingReliableSequenceNumber / ENET_PEER_RELIABLE_WINDOW_SIZE;
@@ -878,27 +889,33 @@ enet_peer_queue_incoming_command (ENetPeer * peer, const ENetProtocol * command,
     case ENET_PROTOCOL_COMMAND_SEND_RELIABLE:
        if (reliableSequenceNumber == channel -> incomingReliableSequenceNumber)
          goto discardCommand;
-       
+     
+       // HPTEST 倒序
        for (currentCommand = enet_list_previous (enet_list_end (& channel -> incomingReliableCommands));
             currentCommand != enet_list_end (& channel -> incomingReliableCommands);
             currentCommand = enet_list_previous (currentCommand))
        {
           incomingCommand = (ENetIncomingCommand *) currentCommand;
 
+          // HPTEST TODO...这段校验看不懂
           if (reliableSequenceNumber >= channel -> incomingReliableSequenceNumber)
           {
              if (incomingCommand -> reliableSequenceNumber < channel -> incomingReliableSequenceNumber)
+                 // 应该永远不成立
                continue;
           }
           else
+              // HPTEST incoming队列中的序列号总是> channel->incomingRelSeqNum
           if (incomingCommand -> reliableSequenceNumber >= channel -> incomingReliableSequenceNumber)
             break;
 
           if (incomingCommand -> reliableSequenceNumber <= reliableSequenceNumber)
           {
+              // HPTEST 需要插入到currentCommand后面
              if (incomingCommand -> reliableSequenceNumber < reliableSequenceNumber)
                break;
 
+             // == 可以忽略这个Command
              goto discardCommand;
           }
        }
@@ -961,6 +978,7 @@ enet_peer_queue_incoming_command (ENetPeer * peer, const ENetProtocol * command,
     if (packet == NULL)
       goto notifyError;
 
+    // HPTEST 创建一个IncomingCommand，所以是协议的第一个分片
     incomingCommand = (ENetIncomingCommand *) enet_malloc (sizeof (ENetIncomingCommand));
     if (incomingCommand == NULL)
       goto notifyError;
@@ -975,6 +993,7 @@ enet_peer_queue_incoming_command (ENetPeer * peer, const ENetProtocol * command,
     
     if (fragmentCount > 0)
     { 
+        // HPTEST 使用bit标记fragment是否接到
        if (fragmentCount <= ENET_PROTOCOL_MAXIMUM_FRAGMENT_COUNT)
          incomingCommand -> fragments = (enet_uint32 *) enet_malloc ((fragmentCount + 31) / 32 * sizeof (enet_uint32));
        if (incomingCommand -> fragments == NULL)
@@ -999,6 +1018,7 @@ enet_peer_queue_incoming_command (ENetPeer * peer, const ENetProtocol * command,
     {
     case ENET_PROTOCOL_COMMAND_SEND_FRAGMENT:
     case ENET_PROTOCOL_COMMAND_SEND_RELIABLE:
+        // HPTEST 可能是一个控制协议，data就是为0?
        enet_peer_dispatch_incoming_reliable_commands (peer, channel);
        break;
 

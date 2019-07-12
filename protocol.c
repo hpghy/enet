@@ -561,7 +561,8 @@ enet_protocol_handle_send_fragment (ENetHost * host, ENetPeer * peer, const ENet
       return -1;
 
     channel = & peer -> channels [command -> header.channelID];
-    startSequenceNumber = ENET_NET_TO_HOST_16 (command -> sendFragment.startSequenceNumber);
+    startSequenceNumber = ENET_NET_TO_HOST_16 (command -> sendFragment.startSequenceNumber);        // 协议的第一个分片的序列号
+    // HPTEST TODO...windows代码需要细看
     startWindow = startSequenceNumber / ENET_PEER_RELIABLE_WINDOW_SIZE;
     currentWindow = channel -> incomingReliableSequenceNumber / ENET_PEER_RELIABLE_WINDOW_SIZE;
 
@@ -571,6 +572,7 @@ enet_protocol_handle_send_fragment (ENetHost * host, ENetPeer * peer, const ENet
     if (startWindow < currentWindow || startWindow >= currentWindow + ENET_PEER_FREE_RELIABLE_WINDOWS - 1)
       return 0;
 
+    // 分片编号
     fragmentNumber = ENET_NET_TO_HOST_32 (command -> sendFragment.fragmentNumber);
     fragmentCount = ENET_NET_TO_HOST_32 (command -> sendFragment.fragmentCount);
     fragmentOffset = ENET_NET_TO_HOST_32 (command -> sendFragment.fragmentOffset);
@@ -582,24 +584,29 @@ enet_protocol_handle_send_fragment (ENetHost * host, ENetPeer * peer, const ENet
         fragmentOffset >= totalLength ||
         fragmentLength > totalLength - fragmentOffset)
       return -1;
- 
+
+    // HPTEST 倒叙遍历 接收缓存区
     for (currentCommand = enet_list_previous (enet_list_end (& channel -> incomingReliableCommands));
          currentCommand != enet_list_end (& channel -> incomingReliableCommands);
          currentCommand = enet_list_previous (currentCommand))
     {
        ENetIncomingCommand * incomingCommand = (ENetIncomingCommand *) currentCommand;
 
+       // HPTEST TODO...为什么是>=而不是>
        if (startSequenceNumber >= channel -> incomingReliableSequenceNumber)
        {
+           // HPTEST 这种情况应该不会出现
           if (incomingCommand -> reliableSequenceNumber < channel -> incomingReliableSequenceNumber)
             continue;
        }
        else
        if (incomingCommand -> reliableSequenceNumber >= channel -> incomingReliableSequenceNumber)
+           // HPTEST TODO...应该总是对的
          break;
 
        if (incomingCommand -> reliableSequenceNumber <= startSequenceNumber)
        {
+           // HPTEST 第一个小于，可以停止，是新协议的分片数据
           if (incomingCommand -> reliableSequenceNumber < startSequenceNumber)
             break;
         
@@ -608,17 +615,19 @@ enet_protocol_handle_send_fragment (ENetHost * host, ENetPeer * peer, const ENet
               fragmentCount != incomingCommand -> fragmentCount)
             return -1;
 
+          // HPTEST 分片数据属于startCommand
           startCommand = incomingCommand;
           break;
        }
     }
- 
+
     if (startCommand == NULL)
     {
        ENetProtocol hostCommand = * command;
 
        hostCommand.header.reliableSequenceNumber = startSequenceNumber;
 
+       // HPTEST startCommand是新建的IncomingCommand
        startCommand = enet_peer_queue_incoming_command (peer, & hostCommand, NULL, totalLength, ENET_PACKET_FLAG_RELIABLE, fragmentCount);
        if (startCommand == NULL)
          return -1;
@@ -626,6 +635,7 @@ enet_protocol_handle_send_fragment (ENetHost * host, ENetPeer * peer, const ENet
     
     if ((startCommand -> fragments [fragmentNumber / 32] & (1 << (fragmentNumber % 32))) == 0)
     {
+        // HPTEST 编号为Number的分片第一次接到
        -- startCommand -> fragmentsRemaining;
 
        startCommand -> fragments [fragmentNumber / 32] |= (1 << (fragmentNumber % 32));
@@ -637,6 +647,7 @@ enet_protocol_handle_send_fragment (ENetHost * host, ENetPeer * peer, const ENet
                (enet_uint8 *) command + sizeof (ENetProtocolSendFragment),
                fragmentLength);
 
+        // HPTEST 已经获取了一个完整的ENetPacket
         if (startCommand -> fragmentsRemaining <= 0)
           enet_peer_dispatch_incoming_reliable_commands (peer, channel);
     }
@@ -1712,10 +1723,10 @@ enet_protocol_send_outgoing_commands (ENetHost * host, ENetEvent * event, int ch
               continue;
         }
 
-        // HPTEST: 如果把outgoing_command队列全部写入发送缓存，且到了ping间隔，且当前mtu还能携带一个ping协议
         if ((enet_list_empty (& currentPeer -> outgoingReliableCommands) ||
                     // HPTEST send_reliable把数据写入host->buffer[1...n]
               enet_protocol_send_reliable_outgoing_commands (host, currentPeer)) &&
+                // HPTEST 发送窗口为空
             enet_list_empty (& currentPeer -> sentReliableCommands) &&
             ENET_TIME_DIFFERENCE (host -> serviceTime, currentPeer -> lastReceiveTime) >= currentPeer -> pingInterval &&
             currentPeer -> mtu - host -> packetSize >= sizeof (ENetProtocolPing))

@@ -165,8 +165,8 @@ typedef struct _ENetProtocolSendUnsequenced
 
 typedef struct _ENetProtocolSendFragment
 {
-    ENetProtocolCommandHeader header;
-    enet_uint16 startSequenceNumber;
+    ENetProtocolCommandHeader header;       // HPTEST 存储分片本身的序列号
+    enet_uint16 startSequenceNumber;        // HPTEST 协议的第一个分片的序列号
     enet_uint16 dataLength;
     enet_uint32 fragmentCount;
     enet_uint32 fragmentNumber;
