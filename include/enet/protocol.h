@@ -79,7 +79,7 @@ typedef struct _ENetProtocolAcknowledge
 {
     ENetProtocolCommandHeader header;
     enet_uint16 receivedReliableSequenceNumber;
-    enet_uint16 receivedSentTime;
+    enet_uint16 receivedSentTime;       // HPTEST: 对应自己发送协议时的时间
 } ENET_PACKED ENetProtocolAcknowledge;
 
 typedef struct _ENetProtocolConnect

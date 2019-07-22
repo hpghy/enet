@@ -869,6 +869,7 @@ enet_protocol_handle_acknowledge (ENetHost * host, ENetEvent * event, ENetPeer *
     if (peer -> state == ENET_PEER_STATE_DISCONNECTED || peer -> state == ENET_PEER_STATE_ZOMBIE)
       return 0;
 
+    // HPTEST 自己发送协议的时间
     receivedSentTime = ENET_NET_TO_HOST_16 (command -> acknowledge.receivedSentTime);
     receivedSentTime |= host -> serviceTime & 0xFFFF0000;
     if ((receivedSentTime & 0x8000) > (host -> serviceTime & 0x8000))
@@ -1701,6 +1702,7 @@ enet_protocol_send_outgoing_commands (ENetHost * host, ENetEvent * event, int ch
             currentPeer -> state == ENET_PEER_STATE_ZOMBIE)
           continue;
 
+        // HPTEST 同一个UDP报文里面全是同一个peer的Command
         host -> headerFlags = 0;
         host -> commandCount = 0;
         host -> bufferCount = 1;
