@@ -445,6 +445,7 @@ enet_protocol_handle_connect (ENetHost * host, ENetProtocolHeader * header, ENet
     return peer;
 }
 
+// HPTEST 处理没有分片的完整协议
 static int
 enet_protocol_handle_send_reliable (ENetHost * host, ENetPeer * peer, const ENetProtocol * command, enet_uint8 ** currentData)
 {
@@ -1166,7 +1167,7 @@ enet_protocol_handle_incoming_commands (ENetHost * host, ENetEvent * event)
             goto commandError;
           break;
 
-       case ENET_PROTOCOL_COMMAND_SEND_RELIABLE:
+       case ENET_PROTOCOL_COMMAND_SEND_RELIABLE:        // 应该是没有分片的包
           if (enet_protocol_handle_send_reliable (host, peer, command, & currentData))
             goto commandError;
           break;
@@ -1181,7 +1182,7 @@ enet_protocol_handle_incoming_commands (ENetHost * host, ENetEvent * event)
             goto commandError;
           break;
 
-       case ENET_PROTOCOL_COMMAND_SEND_FRAGMENT:
+       case ENET_PROTOCOL_COMMAND_SEND_FRAGMENT:        // 这些是分片的包
           if (enet_protocol_handle_send_fragment (host, peer, command, & currentData))
             goto commandError;
           break;
@@ -1248,6 +1249,7 @@ enet_protocol_receive_incoming_commands (ENetHost * host, ENetEvent * event)
     int packets;
 
     // HPTEST 为什么需要重复256次
+    // 在每次接收数据时至多接收256次UDP数据报，如果udp缓冲区中没有数据或者接收次数达到256次，则跳出接收循环，先将接收到的数据dispatch给用户
     for (packets = 0; packets < 256; ++ packets)
     {
        int receivedLength;
@@ -1556,15 +1558,18 @@ enet_protocol_send_reliable_outgoing_commands (ENetHost * host, ENetPeer * peer)
     {
        outgoingCommand = (ENetOutgoingCommand *) currentCommand;
 
-       // HPTEST TODO..看了一下日志为什么基本每次只发送一个Command
        channel = outgoingCommand -> command.header.channelID < peer -> channelCount ? & peer -> channels [outgoingCommand -> command.header.channelID] : NULL;
+       // HPTEST TODO...这个是什么含义 sequence_id / 4096, sid所在的第几个window, 一个windows容纳4096个cmd, 有16个windows
+       // 2**16/4096, reliableWindow上限就是16
        reliableWindow = outgoingCommand -> reliableSequenceNumber / ENET_PEER_RELIABLE_WINDOW_SIZE;
        if (channel != NULL)
        {
            if (! windowWrap &&      
+                // 这个cmd第一次发送 && cmd所在的window编号已经满了 && ...
                outgoingCommand -> sendAttempts < 1 && 
                ! (outgoingCommand -> reliableSequenceNumber % ENET_PEER_RELIABLE_WINDOW_SIZE) &&
                (channel -> reliableWindows [(reliableWindow + ENET_PEER_RELIABLE_WINDOWS - 1) % ENET_PEER_RELIABLE_WINDOWS] >= ENET_PEER_RELIABLE_WINDOW_SIZE ||
+                // 哪个windows被使用过 ?
                  channel -> usedReliableWindows & ((((1 << ENET_PEER_FREE_RELIABLE_WINDOWS) - 1) << reliableWindow) | 
                    (((1 << ENET_PEER_FREE_RELIABLE_WINDOWS) - 1) >> (ENET_PEER_RELIABLE_WINDOWS - reliableWindow)))))
              windowWrap = 1;
@@ -1616,7 +1621,9 @@ enet_protocol_send_reliable_outgoing_commands (ENetHost * host, ENetPeer * peer)
 
        if (channel != NULL && outgoingCommand -> sendAttempts < 1)
        {
+           // HPTEST 标记reliableWindow号windows已经使用
           channel -> usedReliableWindows |= 1 << reliableWindow;
+          // HPTEST windows发送cmd的数量
           ++ channel -> reliableWindows [reliableWindow];
        }
 

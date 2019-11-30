@@ -887,6 +887,7 @@ enet_peer_queue_incoming_command (ENetPeer * peer, const ENetProtocol * command,
     {
     case ENET_PROTOCOL_COMMAND_SEND_FRAGMENT:
     case ENET_PROTOCOL_COMMAND_SEND_RELIABLE:
+        // HPTEST 
        if (reliableSequenceNumber == channel -> incomingReliableSequenceNumber)
          goto discardCommand;
      
@@ -897,16 +898,15 @@ enet_peer_queue_incoming_command (ENetPeer * peer, const ENetProtocol * command,
        {
           incomingCommand = (ENetIncomingCommand *) currentCommand;
 
-          // HPTEST TODO...这段校验看不懂
+          // HPTEST 其实就是 > 
           if (reliableSequenceNumber >= channel -> incomingReliableSequenceNumber)
           {
              if (incomingCommand -> reliableSequenceNumber < channel -> incomingReliableSequenceNumber)
                  // 应该永远不成立
                continue;
           }
-          else
               // HPTEST incoming队列中的序列号总是> channel->incomingRelSeqNum
-          if (incomingCommand -> reliableSequenceNumber >= channel -> incomingReliableSequenceNumber)
+          else if (incomingCommand -> reliableSequenceNumber >= channel -> incomingReliableSequenceNumber)
             break;
 
           if (incomingCommand -> reliableSequenceNumber <= reliableSequenceNumber)
@@ -1012,6 +1012,7 @@ enet_peer_queue_incoming_command (ENetPeer * peer, const ENetProtocol * command,
        peer -> totalWaitingData += packet -> dataLength;
     }
 
+    // HPTEST 插入到合适的位置中channel -> incomingReliableCommands
     enet_list_insert (enet_list_next (currentCommand), incomingCommand);
 
     switch (command -> header.command & ENET_PROTOCOL_COMMAND_MASK)

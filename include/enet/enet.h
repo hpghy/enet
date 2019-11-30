@@ -242,8 +242,8 @@ typedef struct _ENetChannel
 {
     enet_uint16  outgoingReliableSequenceNumber;
     enet_uint16  outgoingUnreliableSequenceNumber;
-    enet_uint16  usedReliableWindows;
-    enet_uint16  reliableWindows [ENET_PEER_RELIABLE_WINDOWS];
+    enet_uint16  usedReliableWindows;                           // 标记window是否使用过/
+    enet_uint16  reliableWindows [ENET_PEER_RELIABLE_WINDOWS];  // HPTEST TODO...
     enet_uint16  incomingReliableSequenceNumber;        // HPTEST 已经处理的Command序列号(必须是完整的协议而不是分片)
     enet_uint16  incomingUnreliableSequenceNumber;
     ENetList     incomingReliableCommands;              // 接收缓存
